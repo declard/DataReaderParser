@@ -17,6 +17,7 @@
         private static readonly Type OpenNullable = typeof(Nullable<>);
 
         private readonly ConcurrentDictionary<(Type Dto, (int Ord, Type ColType)[] Reader), Delegate> ParserCache = new();
+        private readonly ConcurrentDictionary<Type, Expression> GetterCache = new();
 
         private readonly IReadOnlyDictionary<Type, Expression> WellKnownFieldTypeGetters = new Dictionary<Type, Expression>
         {
@@ -122,9 +123,8 @@
 
         private Action<IDataReader, T> GenerateParser<T>(IDataReader reader)
         {
-            var ret = Expression.Label(typeof(void));
-            var readerParam = Expression.Parameter(typeof(IDataReader));
-            var dtoParam = Expression.Parameter(typeof(T));
+            ParameterExpression readerParam = Expression.Parameter(typeof(IDataReader));
+            ParameterExpression dtoParam = Expression.Parameter(typeof(T));
             var columns = ReaderColumnsMetadata.Create(reader);
 
             var parserSignature = GetProps<T>()
@@ -138,10 +138,9 @@
             InvocationExpression MakeSetter((int Ord, Type ColType, PropertyInfo Prop) signature)
             {
                 var (ord, colType, prop) = signature;
-                var propType = prop.PropertyType;
 
-                var fieldGetter = GetFieldGetter(colType);
-                var cast = GetMapping(prop.Name, colType, propType);
+                var fieldGetter = GetterCache.GetOrAdd(colType, GetFieldGetter);
+                var cast = GetMapping(prop.Name, colType, prop.PropertyType);
                 var set = GetPropSetter(prop);
 
                 var fieldValue = Expression.Invoke(fieldGetter, readerParam, Const(ord));
