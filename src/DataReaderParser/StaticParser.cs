@@ -1,15 +1,23 @@
 ﻿namespace DataReaderParser
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Data;
     using System.Linq;
     using System.Linq.Expressions;
     using System.Reflection;
 
+    // todo add specific exception class
     // todo add class name into exception
     public class StaticParser
     {
+        private static readonly Expression<Func<IDataReader, int, bool>> IsDbNull = (reader, ord) => reader.IsDBNull(ord);
+        private static readonly Expression<Func<IDataReader, int, object>> ObjectGetter = (reader, ord) => reader.GetValue(ord);
+        private static readonly Type OpenNullable = typeof(Nullable<>);
+
+        private readonly ConcurrentDictionary<(Type Dto, (int Ord, Type ColType)[] Reader), Delegate> ParserCache = new();
+
         private readonly IReadOnlyDictionary<Type, Expression> WellKnownFieldTypeGetters = new Dictionary<Type, Expression>
         {
             AsFieldGetter((reader, ord) => reader.GetInt64(ord)),
@@ -28,28 +36,12 @@
         private static KeyValuePair<Type, Expression> AsFieldGetter<ColumnType>(Expression<Func<IDataReader, int, ColumnType>> e) =>
             KeyValuePair.Create(typeof(ColumnType), (Expression)e);
 
-        private static readonly Expression<Func<IDataReader, int, bool>> IsDbNull = (reader, ord) => reader.IsDBNull(ord);
-        private static readonly Expression<Func<IDataReader, int, object>> ObjectGetter = (reader, ord) => reader.GetValue(ord);
-
-        //private readonly Dictionary<(Type Sql, Type Dto), Expression> KnownTypeCasts = new Dictionary<(Type Sql, Type Dto), Expression>
-        //{
-        //    AsCast((byte b) => (short)b),
-        //    AsCast((byte b) => (int)b),
-        //    AsCast((short b) => (int)b),
-        //    AsCast((byte b) => (long)b),
-        //    AsCast((short b) => (long)b),
-        //    AsCast((int b) => (long)b),
-        //};
-
-        //private static KeyValuePair<(Type Sql, Type Dto), Expression> AsCast<ColumnType, PropType>(Expression<Func<ColumnType, PropType>> f) =>
-        //    KeyValuePair.Create((typeof(ColumnType), typeof(PropType)), (Expression)f);
-
         // (reader, ord) -> col?
         private Expression GetFieldGetter(Type colType)
         {
             var typeGetter = WellKnownFieldTypeGetters.TryGetValueOrDefault(colType) ?? ObjectGetter;
 
-            var resultType = colType.IsValueType ? MakeNullable(colType) : colType;
+            var resultType = MakeNullable(colType);
 
             var readerType = typeof(IDataReader);
             var reader = Expression.Parameter(readerType, "reader");
@@ -66,13 +58,10 @@
         }
 
         private static bool IsNullable(Type type) =>
-            type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
+            type.IsGenericType && type.GetGenericTypeDefinition() == OpenNullable;
 
         private static Type MakeNullable(Type type) =>
-            typeof(Nullable<>).MakeGenericType(type);
-
-        //private static Type GetNullableInner(Type type) =>
-        //    type.GenericTypeArguments[0];
+            IsNullable(type) || !type.IsValueType ? type : OpenNullable.MakeGenericType(type);
 
         private Expression GenerateMapping(string name, Type colType, Type propType)
         {
@@ -100,22 +89,14 @@
 
             var isNullable = IsNullable(propType);
 
-            //var propSearchType = isNullable ? GetNullableInner(propType) : propType;
-
-            //var knownCast = KnownTypeCasts.TryGetValueOrDefault((colType, propSearchType)) ?? GenerateMapping(name, colType, propSearchType);
-            //if (knownCast == null)
-            //    throw new Exception($"No cast from {colType.Name} to {propType.Name}");
-
             var onNull = isNullable
                 ? (Expression)Expression.Default(propType)
                 : Expression.Throw(NewException($"Trying to set null to nonnullable prop {name}").Body, propType);
 
-            //var castLifted = Expression.Convert(Expression.Invoke(knownCast, Expression.Convert(param, colType)), propType);
-
             var cond = Expression.Condition(
                     Expression.Equal(param, Expression.Default(inType)),
                     onNull,
-                    Expression.Convert(param, propType));
+                    Expression.ConvertChecked(param, propType));
 
             var lambdaType = typeof(Func<,>).MakeGenericType(inType, propType);
             return Expression.Lambda(lambdaType, cond, param);
@@ -139,71 +120,57 @@
         private PropertyInfo[] GetProps<T>() =>
             typeof(T).GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.SetProperty);
 
-        private static int? TryFindColumn(IDataReader reader, string name)
-        {
-            try
-            {
-                return reader.GetOrdinal(name);
-            }
-            catch (IndexOutOfRangeException)
-            {
-                return null;
-            }
-        }
-
-        private int FindColumn(IDataReader reader, PropertyInfo prop) => TryFindColumn(reader, prop.Name)
-            ?? throw new Exception($"No column found for prop {prop.Name}"); // todo add custom naming
-
-        private readonly Dictionary<(Type Dto, (int Ord, Type ColType)[] Reader), Delegate> ParserCache = new Dictionary<(Type Dto, (int Ord, Type ColType)[] Reader), Delegate>(); // todo thread-safe
-
-        private Action<T> GenerateParser<T>(IDataReader reader)
+        private Action<IDataReader, T> GenerateParser<T>(IDataReader reader)
         {
             var ret = Expression.Label(typeof(void));
-            var dto = Expression.Parameter(typeof(T));
+            var readerParam = Expression.Parameter(typeof(IDataReader));
+            var dtoParam = Expression.Parameter(typeof(T));
+            var columns = ReaderColumnsMetadata.Create(reader);
 
             var parserSignature = GetProps<T>()
                 .Where(prop => prop.CanWrite)
                 .Select(prop =>
                 {
-                    var ord = FindColumn(reader, prop);
+                    var ord = columns.FindColumn(prop);
                     return (Ord: ord, ColType: reader.GetFieldType(ord), Prop: prop);
                 }).ToList();
 
-            var cachedParser = ParserCache.TryGetValueOrDefault((typeof(T), parserSignature.Select(sign => (sign.Ord, sign.ColType)).ToArray()));
-
-            if (cachedParser != null)
-                return (Action<T>)cachedParser;
-
-            InvocationExpression MakeSetter((int Ord, Type ColType, PropertyInfo Prop) sign)
+            InvocationExpression MakeSetter((int Ord, Type ColType, PropertyInfo Prop) signature)
             {
-                var (ord, colType, prop) = sign;
+                var (ord, colType, prop) = signature;
                 var propType = prop.PropertyType;
 
                 var fieldGetter = GetFieldGetter(colType);
                 var cast = GetMapping(prop.Name, colType, propType);
                 var set = GetPropSetter(prop);
 
-                var fieldValue = Expression.Invoke(fieldGetter, Const(reader), Const(ord));
+                var fieldValue = Expression.Invoke(fieldGetter, readerParam, Const(ord));
                 var propValue = Expression.Invoke(cast, fieldValue);
+                var setValue = Expression.Invoke(set, dtoParam, propValue);
 
-                return Expression.Invoke(set, dto, propValue);
+                return setValue;
             }
 
-            var setters = parserSignature.Select(MakeSetter);
+            Delegate CreateParser((Type Dto, (int Ord, Type ColType)[] Reader) key)
+            {
+                var setters = parserSignature.Select(MakeSetter);
 
-            return Expression.Lambda<Action<T>>(Expression.Block(setters), new[] { dto }).Compile();
+                return Expression.Lambda<Action<IDataReader, T>>(Expression.Block(setters), new[] { readerParam, dtoParam }).Compile();
+            }
+
+            var key = (typeof(T), parserSignature.Select(signature => (signature.Ord, signature.ColType)).ToArray());
+
+            return (Action<IDataReader, T>)ParserCache.GetOrAdd(key, CreateParser);
         }
 
         public IEnumerable<T> Parse<T>(IDataReader reader, Func<T> ctor)
         {
-            System.Diagnostics.Debugger.Break();
-
             var parser = GenerateParser<T>(reader);
 
             while (reader.Read())
             {
                 var t = ctor();
-                parser(t);
+                parser(reader, t);
                 yield return t;
             }
         }

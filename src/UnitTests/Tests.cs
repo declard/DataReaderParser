@@ -265,7 +265,7 @@
             set.AddColumn<int?>("A");
             set.AddRow(new object[] { null });
 
-            Check(set, new Null { A = 1 }.YieldOne());
+            Check(set, new Null { A = null }.YieldOne());
         }
 
         // tr<-{{1,!}} br<-{{1,!}} br={}
@@ -423,7 +423,7 @@
         {
             var set = new DataReader();
 
-            Check(set, new EmptyStruct { }.YieldOne());
+            Check(set, new EmptyStruct { }.YieldOne().Take(0));
         }
 
         [Test]
