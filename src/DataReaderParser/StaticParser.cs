@@ -37,6 +37,8 @@
         private static KeyValuePair<Type, Expression> AsFieldGetter<ColumnType>(Expression<Func<IDataReader, int, ColumnType>> e) =>
             KeyValuePair.Create(typeof(ColumnType), (Expression)e);
 
+        private static string NameOf<T>() => typeof(T).Name;
+
         // (reader, ord) -> col?
         private Expression GetFieldGetter(Type colType)
         {
@@ -64,7 +66,7 @@
         private static Type MakeNullable(Type type) =>
             IsNullable(type) || !type.IsValueType ? type : OpenNullable.MakeGenericType(type);
 
-        private Expression GenerateMapping(string name, Type colType, Type propType)
+        private Expression GenerateMapping<T>(string name, Type colType, Type propType)
         {
             if (colType == propType)
             {
@@ -73,16 +75,16 @@
                 return Expression.Lambda(lambdaType, par, new[] { par });
             }
 
-            throw new Exception($"Can't build a cast from {colType.Name} to {propType.Name} (prop {name})");
+            throw new StaticParserException($"Can't build a cast from {colType.Name} to {propType.Name} ({NameOf<T>()}.{name})");
         }
 
-        private Expression<Func<Exception>> NewException(string message) => () => new Exception(message);
+        private Expression<Func<Exception>> NewException(string message) => () => new StaticParserException(message);
 
         // col? -> prop
-        private Expression GetMapping(string name, Type colType, Type propType)
+        private Expression GetMapping<T>(string name, Type colType, Type propType)
         {
             if (!propType.IsValueType)
-                return GenerateMapping(name, colType, propType);
+                return GenerateMapping<T>(name, colType, propType);
 
             var inType = MakeNullable(colType);
 
@@ -92,7 +94,7 @@
 
             var onNull = isNullable
                 ? (Expression)Expression.Default(propType)
-                : Expression.Throw(NewException($"Trying to set null to nonnullable prop {name}").Body, propType);
+                : Expression.Throw(NewException($"Trying to set null to nonnullable prop {NameOf<T>()}.{name}").Body, propType);
 
             var cond = Expression.Condition(
                     Expression.Equal(param, Expression.Default(inType)),
@@ -140,7 +142,7 @@
                 var (ord, colType, prop) = signature;
 
                 var fieldGetter = GetterCache.GetOrAdd(colType, GetFieldGetter);
-                var cast = GetMapping(prop.Name, colType, prop.PropertyType);
+                var cast = GetMapping<T>(prop.Name, colType, prop.PropertyType);
                 var set = GetPropSetter(prop);
 
                 var fieldValue = Expression.Invoke(fieldGetter, readerParam, Const(ord));

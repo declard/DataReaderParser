@@ -29,7 +29,7 @@
         public int FindColumn(PropertyInfo prop)
         {
             if (!Indexes.TryGetValue(prop.Name, out var index))
-                throw new Exception($"No column found for prop {prop.Name}"); // todo add custom naming
+                throw new Exception($"No column found for prop {prop.DeclaringType.Name}.{prop.Name}"); // todo add custom naming
 
             return index;
         }
