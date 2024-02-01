@@ -100,9 +100,16 @@
             Assert.Fail();
         }
 
-        // tc={} bc={} br={}
-        // tc={} bc={} br={.}
-        // tc={} bc={} br={.,.}
+        // notation:
+        // tc - target type column set
+        // dc - data column set
+        // dr - data row set
+        // {} - the empty set
+        // {n:a} - a set with element named `n` or with value `n` of type `a`
+
+        // tc={} dc={} dr={}
+        // tc={} dc={} dr={{}}
+        // tc={} dc={} dr={{},{}}
         [TestCase(0), TestCase(1), TestCase(2)]
         public void Tc_Bc(int rows)
         {
@@ -112,9 +119,9 @@
             Check(set, Many(rows, new Empty { }));
         }
 
-        // tc={} bc={A} br={}
-        // tc={} bc={A} br={.}
-        // tc={} bc={A} br={.,.}
+        // tc={} dc={n:a} dr={}
+        // tc={} dc={n:a} dr={{}}
+        // tc={} dc={n:a} dr={{},{}}
         [TestCase(0), TestCase(1), TestCase(2)]
         public void Tc_BcA(int rows)
         {
@@ -125,9 +132,9 @@
             Check(set, Many(rows, new Empty { }));
         }
 
-        // tc={A} bc={} br={}
-        // tc={A} bc={} br={.}
-        // tc={A} bc={} br={.,.}
+        // tc={n:a} dc={} dr={}
+        // tc={n:a} dc={} dr={{}}
+        // tc={n:a} dc={} dr={{},{}}
         [TestCase(0), TestCase(1), TestCase(2)]
         public void TcA_Bc(int rows)
         {
@@ -137,9 +144,9 @@
             Throws<One>(set);
         }
 
-        // tc={A} bc={A} br={}
-        // tc={A} bc={A} br={.}
-        // tc={A} bc={A} br={.,.}
+        // tc={n:a} dc={n:a} dr={}
+        // tc={n:a} dc={n:a} dr={{_:a}}
+        // tc={n:a} dc={n:a} dr={{_:a},{_:a}}
         [TestCase(0), TestCase(1), TestCase(2)]
         public void TcA_BcA(int rows)
         {
@@ -150,9 +157,9 @@
             Check(set, Many(rows, new One { A = 1 }));
         }
 
-        // tc={A,B} bc={A} br={}
-        // tc={A,B} bc={A} br={.}
-        // tc={A,B} bc={A} br={.,.}
+        // tc={n:a,m:b} dc={n:a} dr={}
+        // tc={n:a,m:b} dc={n:a} dr={{_:a}}
+        // tc={n:a,m:b} dc={n:a} dr={{_:a},{_:a}}
         [TestCase(0), TestCase(1), TestCase(2)]
         public void TcAB_BcA(int rows)
         {
@@ -163,10 +170,9 @@
             Throws<Two>(set);
         }
 
-
-        // tc={A} bc={A,B} br={}
-        // tc={A} bc={A,B} br={.}
-        // tc={A} bc={A,B} br={.,.}
+        // tc={n:a} dc={n:a,m:b} dr={}
+        // tc={n:a} dc={n:a,m:b} dr={{_:a,_:b}}
+        // tc={n:a} dc={n:a,m:b} dr={{_:a,_:b},{_:a,_:b}}
         [TestCase(0), TestCase(1), TestCase(2)]
         public void TcA_BcAB(int rows)
         {
@@ -178,9 +184,9 @@
             Check(set, Many(rows, new One { A = 1 }));
         }
 
-        // tc={A,B} bc={A,B} br={}
-        // tc={A,B} bc={A,B} br={.}
-        // tc={A,B} bc={A,B} br={.,.}
+        // tc={n:a,m:b} dc={n:a,m:b} dr={}
+        // tc={n:a,m:b} dc={n:a,m:b} dr={{_:a,_:b}}
+        // tc={n:a,m:b} dc={n:a,m:b} dr={{_:a,_:b},{_:a,_:b}}
         [TestCase(0), TestCase(1), TestCase(2)]
         public void TcAB_BcAB(int rows)
         {
@@ -192,9 +198,9 @@
             Check(set, Many(rows, new Two { A = 1, B = 2 }));
         }
 
-        // tc={B} bc={A} br={}
-        // tc={B} bc={A} br={.}
-        // tc={B} bc={A} br={.,.}
+        // tc={n:a} dc={m:a} dr={}
+        // tc={n:a} dc={m:a} dr={{_:a}}
+        // tc={n:a} dc={m:a} dr={{_:a},{_:a}}
         [TestCase(0), TestCase(1), TestCase(2)]
         public void TcB_BcA(int rows)
         {
@@ -205,7 +211,7 @@
             Throws<One>(set);
         }
 
-        // tr<-{{1}} br<-{{1,!}} br={{1}}
+        // tc={{n:int}} dc={{n:int|null}} dr={{1}}
         [Test]
         public void Tre1BreN1Br1()
         {
@@ -216,7 +222,7 @@
             Check(set, new NotNull { A = 1 }.YieldOne());
         }
 
-        // tr<-{{1}} br<-{{1,!}} br={{!}}
+        // tc={{n:int}} dc={{n:int|null}} dr={{null}}
         [Test]
         public void Tre1BreN1BrN()
         {
@@ -227,7 +233,7 @@
             Throws<NotNull>(set);
         }
 
-        // tr<-{{1}} br<-{{1,!}} br={}
+        // tc={{n:int}} dc={{n:int|null}} dr={}
         [Test]
         public void Tre1BreN1Br()
         {
@@ -237,7 +243,7 @@
             Check(set, new NotNull[] { });
         }
 
-        // tr<-{{1}} bc<-{}
+        // tc={{_:int}} dc={}
         [Test]
         public void Tre1Bc()
         {
@@ -246,7 +252,7 @@
             Throws<NotNull>(set);
         }
 
-        // tr<-{{1,!}} br<-{{1,!}} br={{1}}
+        // tc={{n:int|null}} dc={{n:int|null}} dr={{1}}
         [Test]
         public void TreN1BreN1Br1()
         {
@@ -257,7 +263,7 @@
             Check(set, new Null { A = 1 }.YieldOne());
         }
 
-        // tr<-{{1,!}} br<-{{1,!}} br={{!}}
+        // tc={{n:int|null}} dc={{n:int|null}} dr={{null}}
         [Test]
         public void TreN1BreN1BrN()
         {
@@ -268,7 +274,7 @@
             Check(set, new Null { A = null }.YieldOne());
         }
 
-        // tr<-{{1,!}} br<-{{1,!}} br={}
+        // tc={{n:int|null}} dc={{n:int|null}} dr={}
         [Test]
         public void TreN1BreN1Br()
         {
@@ -278,7 +284,7 @@
             Check(set, new Null[] { });
         }
 
-        // tr<-{{1,!}} bc<-{}
+        // tc={{n:a|null}} dc={}
         [Test]
         public void TreN1Bc()
         {
@@ -287,7 +293,7 @@
             Throws<Null>(set);
         }
 
-        // tr<-{{string}} br<-{{string}} br={{"string"}}
+        // tc={{n:string}} dc={{n:string}} dr={{"string"}}
         [Test]
         public void TcS_BreS_BrS()
         {
@@ -298,7 +304,7 @@
             Check(set, new String { A = "string" }.YieldOne());
         }
 
-        // tr<-{{string}} br<-{{string}} br={{""}}
+        // tc={{n:string}} dc={{n:string}} dr={{""}}
         [Test]
         public void TcS_BreS_BrE()
         {
@@ -309,7 +315,7 @@
             Check(set, new String { A = "" }.YieldOne());
         }
 
-        // tr<-{{string}} br<-{{string}} br={{null}}
+        // tc={{n:string}} dc={{n:string}} dr={{null}}
         [Test]
         public void TcS_BreS_BrN()
         {
@@ -320,7 +326,7 @@
             Check(set, new String { A = null }.YieldOne());
         }
 
-        // tr<-{{string}} br<-{{string}} br={}
+        // tc={{n:string}} dc={{n:string}} dr={}
         [Test]
         public void TcS_BreS_Br()
         {
@@ -330,7 +336,7 @@
             Check(set, new String[] { });
         }
 
-        // tr<-{{string}} bc<-{}
+        // tc={{n:a}} dc={}
         [Test]
         public void TcS_Bc()
         {
@@ -339,7 +345,7 @@
             Throws<String>(set);
         }
 
-        // tr<-{{1}} br<-{{2}}
+        // tc={{n:a}} dc={{n:b}}
         [Test]
         public void Tre1_Bre2()
         {
@@ -349,7 +355,7 @@
             Throws<String>(set);
         }
 
-        // tr<-{{1}} br<-{{1,2}} br=1
+        // tc={{n:a}} dc={{n:b}} dr={{x}} | x∈b & x∈a & a⊂b
         [Test]
         public void Tre1_Bre12_Br1()
         {
@@ -360,7 +366,7 @@
             Check(set, new Short { A = 1 }.YieldOne());
         }
 
-        // tr<-{{1}} br<-{{1,2}} br=2
+        // tc={{n:a}} dc={{n:b}} dr={{x}} | x∈b & x∉a & a⊂b
         [Test]
         public void Tre1_Bre12_Br2()
         {
@@ -371,7 +377,7 @@
             Throws<Short>(set);
         }
 
-        // tr<-{{1,2}} br<-{{1}}
+        // tc={{n:a}} dc={{n:b}} dr={{x}} | x∈b & x∈a & a⊃b
         [Test]
         public void Tre12_Bre1()
         {
@@ -382,7 +388,7 @@
             Check(set, new Long { A = 1 }.YieldOne());
         }
 
-        // tr<-{{1},{1}} br<-{{1},{2}}
+        // tc={{n:a},{m:a}} dc={{n:a},{m:b}}
         [Test]
         public void Tre11_Bre12()
         {
@@ -394,7 +400,7 @@
             Throws<Two>(set);
         }
 
-        // tc<-{A} bc<-{A,A} br<-{{1},{1}}
+        // tc={{n:a}} dc={{n:a},{n:a}} dr={{x:a},{y:a}}
         [Test]
         public void TcA_BcAA_Br11()
         {
@@ -406,7 +412,7 @@
             Throws<One>(set);
         }
 
-        // tc<-{A} bc<-{A,A} br<-{{1},{2}}
+        // tc={{n:a}} dc={{n:a},{n:b}} dr={{x:a},{y:b}}
         [Test]
         public void TcA_BcAA_Br12()
         {
